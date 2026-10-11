@@ -65,8 +65,8 @@ jobs:
             fi
           done
           # Upstream's own workflows (CI, publish, cron jobs) must never run in this
-          # fork; the branch carries only this sync workflow.
-          find .github/workflows -type f ! -name 'fork-sync.yml' -print0 | xargs -0 -r git rm -q
+          # fork; the branch carries only the fork's sync and release workflows.
+          find .github/workflows -type f ! -name 'fork-sync.yml' ! -name 'fork-release.yml' -print0 | xargs -0 -r git rm -q
           git diff --cached --quiet || git commit -q -m "ci(fork): drop upstream workflows from the fork branch"
           if [ "$(git rev-parse HEAD^{tree})" = "$(git rev-parse "origin/${BRANCH}^{tree}")" ]; then
             echo "unchanged=true" >> "$GITHUB_OUTPUT"
