@@ -2,7 +2,7 @@ import type { Plugin } from "@opencode/plugin"
 
 import { log } from "../shared/logger"
 import { createAdapterState, type AdapterState } from "./adapter-state"
-import { agentsFrom, configData, modelsFrom, providersFrom, serveOrigin, sessionCatalog, sessionStatusMap, skillsFrom } from "./catalog"
+import { activeSessionStatusMap, agentsFrom, configData, modelsFrom, providersFrom, serveOrigin, sessionCatalog, sessionStatusMap, skillsFrom } from "./catalog"
 import { listenPortOf } from "./serve-http"
 import {
   childSessions,
@@ -115,6 +115,9 @@ export function createV1PluginInput(ctx: V2Context, deps: FacadeDeps = {}): {
     },
     async status() {
       return sdkResult(await sessionStatusMap({ origin: await origin(), fetchImpl, state }))
+    },
+    async activeStatus() {
+      return sdkResult(await activeSessionStatusMap({ origin: await origin(), fetchImpl, state }))
     },
     async list() {
       const known = [...state.sessions.values()]
