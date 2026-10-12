@@ -2,7 +2,8 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { dispatchInternalPrompt, isInternalPromptDispatchAccepted } from "../shared/prompt-async-gate"
 import { createGoalController, type GoalController } from "./controller"
 import { hasActiveBackgroundTaskFor } from "../../features/background-agent/task-registry"
-import { buildContinuationPrompt } from "./prompt"
+import { buildContinuationPrompt, buildResumePrompt } from "./prompt"
+import { registerGoalWake, syncGoalFromClient } from "./sync-bridge"
 import { goalUsageFromMessages } from "./usage"
 import type { Goal } from "./types"
 
@@ -62,17 +63,27 @@ export function createGoalHook(ctx: PluginInput, options: GoalHookOptions): Goal
 
   const retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const retryDelayMs = options.retryDelayMs ?? 3_000
-  function scheduleRetry(sessionID: string): void {
+  function scheduleRetry(sessionID: string, resumed = false): void {
     if (retryTimers.has(sessionID)) return
     const timer = setTimeout(() => {
       retryTimers.delete(sessionID)
-      void handleSessionIdle(sessionID)
+      void handleSessionIdle(sessionID, resumed)
     }, retryDelayMs)
     timer.unref?.()
     retryTimers.set(sessionID, timer)
   }
 
-  async function handleSessionIdle(sessionID: string): Promise<void> {
+  async function handleSessionIdle(sessionID: string, resumed = false): Promise<void> {
+    if (controller.getGoal(sessionID)?.status !== "active") {
+      return
+    }
+    // A Pause in OpenChamber aborts the turn, and that abort is this idle:
+    // take the user's change in before deciding to continue.
+    try {
+      await syncGoalFromClient(options.projectDir, sessionID)
+    } catch {
+      // The sync logs its own failures; the loop goes on with what it has.
+    }
     const initial = controller.getGoal(sessionID)
     if (initial === null || initial.status !== "active") {
       return
@@ -99,7 +110,7 @@ export function createGoalHook(ctx: PluginInput, options: GoalHookOptions): Goal
         controller.settle(sessionID, "blocked")
         return
       }
-      const promptText = buildContinuationPrompt(goal)
+      const promptText = resumed ? buildResumePrompt(goal) : buildContinuationPrompt(goal)
       const promptResult = await dispatchInternalPrompt({
         mode: "async",
         client: ctx.client,
@@ -111,7 +122,9 @@ export function createGoalHook(ctx: PluginInput, options: GoalHookOptions): Goal
         // swallow the next one when a turn takes under its hold window. One
         // key per goal turn keeps duplicates of the same turn out and lets
         // the next turn through.
-        dedupeKey: `goal:${goal.id}:${goal.turnsUsed}`,
+        // A resume resets turnsUsed, so its key would repeat the first turn's
+        // and the gate would swallow it: a resume gets a key of its own.
+        dedupeKey: resumed ? `goal:${goal.id}:resume:${goal.updatedAt}` : `goal:${goal.id}:${goal.turnsUsed}`,
         input: {
           path: { id: sessionID },
           body: {
@@ -125,7 +138,7 @@ export function createGoalHook(ctx: PluginInput, options: GoalHookOptions): Goal
         // The gate still holds the previous dispatch (a short turn finished
         // inside its hold window). No idle will come again on its own, so look
         // once more shortly instead of leaving the goal stalled.
-        scheduleRetry(sessionID)
+        scheduleRetry(sessionID, resumed)
       }
       if (promptResult.status === "failed" && !isInternalPromptDispatchAccepted(promptResult)) {
         // Log only; the dispatch may still have been accepted by another route.
@@ -136,6 +149,10 @@ export function createGoalHook(ctx: PluginInput, options: GoalHookOptions): Goal
       inFlightContinuations.delete(sessionID)
     }
   }
+
+  // A goal resumed in OpenChamber continues now; if the session is busy, the
+  // prompt gate holds the continuation and the next idle picks it up.
+  registerGoalWake(options.projectDir, (sessionID) => { void handleSessionIdle(sessionID, true) })
 
   async function handleSessionDeleted(sessionID: string): Promise<void> {
     controller.clearGoal(sessionID)

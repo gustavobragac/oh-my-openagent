@@ -21,6 +21,7 @@ Opt-in: requires `goal.enabled: true` (config) AND the `goal` hook enabled. Wire
 | `prompt.ts` | `buildContinuationPrompt` / `buildResumePrompt`. Objective wrapped in `<untrusted_objective>` (XML-escaped). Enforces completion audit before `update_goal status:complete` |
 | `tools.ts` | `createGoalTools` -> `create_goal`, `update_goal`, `get_goal` ToolDefinitions. `session_id` optional (defaults to current session) |
 | `validation.ts` | `validateObjective`: trim, non-empty, max 2000 chars. `InvalidObjectiveError` |
+| `sync-bridge.ts` | Per-project hand-off between the loop and `v2/goal-sync.ts`: `registerGoalSync` / `syncGoalFromClient`, `registerGoalWake` / `wakeGoal` |
 | `command-arguments.ts` | `parseGoalCommand` -> `show | clear | setStatus(active|paused) | setObjective` |
 
 ## STATE
@@ -53,4 +54,4 @@ interface GoalHook {
 - `accountUsage` accrues only while `status === active`; paused goals keep their accumulated totals.
 - `default_max_iterations` (default 100) caps continuations per goal (`turnsUsed`); reaching it settles the goal as `blocked`. Resume grants a fresh allowance.
 - Each idle records usage from the session messages (`usage.ts`, same snapshot accounting as OpenChamber), stops at `tokenBudget` as `budgetLimited`, and waits while a background task launched from the session still runs.
-- On OpenCode 2 with OpenChamber, `v2/goal-sync.ts` mirrors the goal into `metadata.openchamber.goal` (`driver: "omo"`) and applies pause/resume/objective/budget/clear made in OpenChamber.
+- On OpenCode 2 with OpenChamber, `v2/goal-sync.ts` mirrors the goal into `metadata.openchamber.goal` (`driver: "omo"`) and applies pause/resume/objective/budget/clear made in OpenChamber. A user change is a mirror that differs from what the sync last wrote (not a newer `updatedAt`, which OMO bumps on every usage tally). `sync-bridge.ts` joins the two: the idle handler syncs the session before continuing (a Pause aborts the turn, and that abort is the idle), and a Resume from OpenChamber wakes the loop.

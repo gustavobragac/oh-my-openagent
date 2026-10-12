@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
 
 import { createGoalController } from "../hooks/goal/controller"
+import { registerGoalWake } from "../hooks/goal/sync-bridge"
 import { createGoalSync, OMO_GOAL_DRIVER } from "./goal-sync"
 
 const directories: string[] = []
@@ -88,5 +89,40 @@ describe("OMO goal ↔ OpenChamber goal", () => {
     controller.clearGoal("ses_1")
     await sync()
     expect(mirror()).toBeUndefined()
+  })
+
+  test("a pause is kept even when OMO touched its goal after the click (newer updatedAt)", async () => {
+    const { controller, sync, records } = setup()
+    controller.setGoal("ses_1", "make the build green")
+    await sync()
+    // The user pauses: OpenChamber writes the mirror with its own clock.
+    const metadata = records.get("ses_1") ?? {}
+    const namespace = metadata.openchamber as Metadata
+    records.set("ses_1", { ...metadata, openchamber: { ...namespace, goal: { ...(namespace.goal as Metadata), status: "paused", updatedAt: 1 } } })
+    // OMO tallies usage afterwards, so its updatedAt is now the newer one.
+    controller.recordUsage("ses_1", { tokensUsed: 1234, timeUsedSeconds: 9 })
+    await sync()
+    expect(controller.getGoal("ses_1")?.status).toBe("paused")
+    expect((((records.get("ses_1")?.openchamber as Metadata).goal) as Metadata).status).toBe("paused")
+  })
+
+  test("a resume in OpenChamber wakes the goal loop; session() syncs one session on demand", async () => {
+    const { controller, sync, editMirror, projectDir } = setup()
+    const woken: string[] = []
+    const stop = registerGoalWake(projectDir, (sessionID) => { woken.push(sessionID) })
+    try {
+      controller.setGoal("ses_1", "make the build green")
+      await sync()
+      editMirror({ status: "paused" })
+      await sync.session("ses_1")
+      expect(controller.getGoal("ses_1")?.status).toBe("paused")
+      expect(woken).toEqual([])
+      editMirror({ status: "active" })
+      await sync.session("ses_1")
+      expect(controller.getGoal("ses_1")?.status).toBe("active")
+      expect(woken).toEqual(["ses_1"])
+    } finally {
+      stop()
+    }
   })
 })

@@ -8,6 +8,7 @@ import { startClientStatePublisher, startSerialLoop } from "./client-state"
 import { createV1PluginInput } from "./context-facade"
 import { registerV1Hooks, type V1HookMap } from "./hook-bridge"
 import { createGoalSync } from "./goal-sync"
+import { registerGoalSync } from "../hooks/goal/sync-bridge"
 import { categoryModels, createNotifier } from "./client-control"
 import { getBackgroundTaskControl } from "../features/background-agent/task-registry"
 import { serveOrigin } from "./catalog"
@@ -106,7 +107,13 @@ export async function setupOpenCodeV2(
   })
   // Separate from the file publisher: it calls OpenCode, which can be slow or
   // not ready while this location boots, and must never hold the files back.
-  const stopGoalSync = syncGoals ? startSerialLoop("goal sync", syncGoals, 2000, 10_000) : () => {}
+  const stopGoalLoop = syncGoals ? startSerialLoop("goal sync", syncGoals, 2000, 10_000) : () => {}
+  // The goal loop syncs a session before each continuation (see hooks/goal/sync-bridge.ts).
+  const stopGoalBridge = syncGoals ? registerGoalSync(v1Input.directory, syncGoals.session) : () => {}
+  const stopGoalSync = () => {
+    stopGoalLoop()
+    stopGoalBridge()
+  }
 
   const dispose = hooks.dispose
   return async () => {

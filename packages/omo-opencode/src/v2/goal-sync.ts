@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { createGoalController } from "../hooks/goal/controller"
+import { wakeGoal } from "../hooks/goal/sync-bridge"
 import { GoalFileSchema, type Goal } from "../hooks/goal/types"
 import { log } from "../shared/logger"
 
@@ -47,6 +48,13 @@ const sameMirror = (left: unknown, right: Metadata): boolean => (
   isRecord(left) && MIRROR_KEYS.every((key) => (left[key] ?? null) === (right[key] ?? null))
 )
 
+/** What the user can change on the OpenChamber side. */
+const USER_KEYS = ["status", "objective", "tokenBudget"] as const
+
+const userChanged = (mirror: Metadata, written: Metadata): boolean => (
+  USER_KEYS.some((key) => (mirror[key] ?? null) !== (written[key] ?? null))
+)
+
 function readGoals(projectDir: string): Map<string, Goal> {
   const goals = new Map<string, Goal>()
   const goalDir = join(projectDir, ".omo", "goal")
@@ -78,9 +86,13 @@ const withGoal = (metadata: Metadata, goal: Metadata | null): Metadata => {
  * - OMO → OpenChamber: every goal in `.omo/goal` is written to
  *   `metadata.openchamber.goal` with `driver: "omo"` whenever what it shows
  *   changed (status, objective, tokens, turns, budget).
- * - OpenChamber → OMO: a mirror the user changed in OpenChamber (it carries a
- *   newer `updatedAt` than OMO's goal) applies its status, objective and
- *   budget to OMO's goal. A mirror the user cleared, or replaced with an
+ * - OpenChamber → OMO: a mirror whose status, objective or budget differs
+ *   from what this process last wrote was changed by the user, and applies to
+ *   OMO's goal. (Comparing `updatedAt` lost the change whenever OMO touched
+ *   its goal after the click: every usage tally and continuation bumps it.)
+ *   Before this process wrote a mirror (a restart), a newer `updatedAt`
+ *   still decides. A resume wakes the goal loop, since an idle session gets
+ *   no idle event of its own. A mirror the user cleared, or replaced with an
  *   OpenChamber goal of its own, clears OMO's goal, so the two loops never
  *   run on one session.
  * - A goal cleared in OMO removes its mirror.
@@ -88,7 +100,12 @@ const withGoal = (metadata: Metadata, goal: Metadata | null): Metadata => {
  * OpenCode replaces session metadata as a whole, so each write is
  * read-modify-write on the current record.
  */
-export function createGoalSync(input: { projectDir: string; session: SessionApi }): () => Promise<void> {
+export type GoalSync = (() => Promise<void>) & {
+  /** Syncs one session now (the goal loop calls it before a continuation). */
+  session: (sessionID: string) => Promise<void>
+}
+
+export function createGoalSync(input: { projectDir: string; session: SessionApi }): GoalSync {
   const controller = createGoalController({ projectDir: input.projectDir })
   // Goal id whose mirror this process has READ BACK from the session: only
   // then does a missing mirror mean "cleared in OpenChamber". A write that
@@ -96,6 +113,10 @@ export function createGoalSync(input: { projectDir: string; session: SessionApi 
   const mirrored = new Map<string, string>()
   // Sessions whose sync failed, so a deleted session is logged once, not every tick.
   const failing = new Set<string>()
+  // The mirror this process last wrote or found in step, per session.
+  const written = new Map<string, Metadata>()
+  // One sync per session at a time: the loop and the goal loop's call share it.
+  const running = new Map<string, Promise<void>>()
 
   const write = async (sessionID: string, metadata: Metadata, goal: Metadata | null) => {
     await input.session.update({ sessionID, metadata: withGoal(metadata, goal) })
@@ -103,8 +124,10 @@ export function createGoalSync(input: { projectDir: string; session: SessionApi 
 
   const applyUserChanges = (sessionID: string, goal: Goal, mirror: Metadata): Goal | null => {
     if (mirror.status !== goal.status) {
-      if (mirror.status === "active") controller.resumeGoal(sessionID)
-      else if (mirror.status === "paused") controller.pauseGoal(sessionID)
+      if (mirror.status === "active") {
+        controller.resumeGoal(sessionID)
+        wakeGoal(input.projectDir, sessionID)
+      } else if (mirror.status === "paused") controller.pauseGoal(sessionID)
       else if (mirror.status === "complete") controller.markComplete(sessionID)
     }
     if (typeof mirror.objective === "string" && mirror.objective.trim() && mirror.objective.trim() !== goal.objective) {
@@ -129,22 +152,44 @@ export function createGoalSync(input: { projectDir: string; session: SessionApi 
       // Cleared in OpenChamber, or replaced by an OpenChamber goal: OMO steps aside.
       controller.clearGoal(sessionID)
       mirrored.delete(sessionID)
+      written.delete(sessionID)
       return
     }
     if (mirror && mirror.id !== goal.id && mirror.driver !== OMO_GOAL_DRIVER) {
       // An OpenChamber goal was already there; OMO's /goal takes the session over.
       log("[oh-my-openagent] goal replaces the OpenChamber goal of the session", { sessionID })
     }
-    if (mirror?.driver === OMO_GOAL_DRIVER && mirror.id === goal.id
-      && typeof mirror.updatedAt === "number" && mirror.updatedAt > goal.updatedAt * 1000) {
-      goal = applyUserChanges(sessionID, goal, mirror)
-      if (!goal) return
+    if (mirror?.driver === OMO_GOAL_DRIVER && mirror.id === goal.id) {
+      const last = written.get(sessionID)
+      const changed = last?.id === goal.id
+        ? userChanged(mirror, last)
+        : typeof mirror.updatedAt === "number" && mirror.updatedAt > goal.updatedAt * 1000
+      if (changed) {
+        goal = applyUserChanges(sessionID, goal, mirror)
+        if (!goal) return
+      }
     }
 
     const desired = goalMirror(goal)
     if (mirror?.driver === OMO_GOAL_DRIVER && mirror.id === goal.id) mirrored.set(sessionID, goal.id)
-    if (sameMirror(mirror, desired)) return
+    if (sameMirror(mirror, desired)) {
+      written.set(sessionID, desired)
+      return
+    }
     await write(sessionID, metadata, desired)
+    written.set(sessionID, desired)
+  }
+
+  const syncOne = (sessionID: string): Promise<void> => {
+    const previous = running.get(sessionID) ?? Promise.resolve()
+    const next = previous.then(() => {
+      // Read again: the previous run may have changed the goal.
+      const current = controller.getGoal(sessionID)
+      return current ? syncSession(sessionID, current) : undefined
+    }, () => undefined).then(() => undefined)
+    running.set(sessionID, next)
+    void next.finally(() => { if (running.get(sessionID) === next) running.delete(sessionID) }).catch(() => undefined)
+    return next
   }
 
   const unmirror = async (sessionID: string, goalID: string) => {
@@ -152,12 +197,13 @@ export function createGoalSync(input: { projectDir: string; session: SessionApi 
     const mirror = isRecord(metadata.openchamber) && isRecord(metadata.openchamber.goal) ? metadata.openchamber.goal : null
     if (mirror?.driver === OMO_GOAL_DRIVER && mirror.id === goalID) await write(sessionID, metadata, null)
     mirrored.delete(sessionID)
+    written.delete(sessionID)
   }
 
-  return async () => {
+  const syncAll = async () => {
     const goals = readGoals(input.projectDir)
-    for (const [sessionID, goal] of goals) {
-      await syncSession(sessionID, goal).then(
+    for (const sessionID of goals.keys()) {
+      await syncOne(sessionID).then(
         () => { failing.delete(sessionID) },
         (error: unknown) => {
           if (failing.has(sessionID)) return
@@ -173,4 +219,8 @@ export function createGoalSync(input: { projectDir: string; session: SessionApi 
       })
     }
   }
+
+  return Object.assign(syncAll, {
+    session: (sessionID: string) => syncOne(sessionID),
+  })
 }

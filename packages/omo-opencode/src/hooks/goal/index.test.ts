@@ -4,7 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { createGoalHook } from "./index"
-import { releaseAllPromptAsyncReservationsForTesting } from "../shared/prompt-async-gate"
+import { createGoalController } from "./controller"
+import { registerGoalSync, wakeGoal } from "./sync-bridge"
+import { releaseAllPromptAsyncReservationsForTesting, releasePromptAsyncReservation } from "../shared/prompt-async-gate"
 
 function makePluginInput(): PluginInput {
   return {
@@ -117,6 +119,40 @@ describe("goal continuation loop", () => {
     running = false
     await hook.event(idle)
     expect(hook.getGoal("s1")?.turnsUsed).toBe(1)
+  })
+
+  test("a pause made in OpenChamber is applied before the idle its abort caused continues the goal", async () => {
+    const { ctx, sent } = loopInput()
+    releaseAllPromptAsyncReservationsForTesting()
+    const hook = createGoalHook(ctx, { projectDir: ctx.directory, hasActiveBackgroundTasks: () => false })
+    hook.setGoal("s1", "Ship it")
+    // Stands in for the OpenChamber sync, which reads the paused mirror.
+    const stop = registerGoalSync(ctx.directory, async (sessionID) => { createGoalController({ projectDir: ctx.directory }).pauseGoal(sessionID) })
+    try {
+      await hook.event(idle)
+    } finally {
+      stop()
+    }
+    expect(hook.getGoal("s1")).toMatchObject({ status: "paused", turnsUsed: 0 })
+    expect(sent).toEqual([])
+  })
+
+  test("a resume right after a continuation is sent as a resume, not swallowed as a duplicate", async () => {
+    const { ctx, sent } = loopInput()
+    releaseAllPromptAsyncReservationsForTesting()
+    const hook = createGoalHook(ctx, { projectDir: ctx.directory, hasActiveBackgroundTasks: () => false })
+    hook.setGoal("s1", "Ship it")
+    await hook.event(idle)
+    expect(sent).toHaveLength(1)
+    hook.pauseGoal("s1")
+    // The turn ended: its reservation goes, the gate's memory of the prompt stays.
+    releasePromptAsyncReservation("s1", "test:turn-ended", { reservedBy: "goal:idle-continuation" })
+    await new Promise((resolve) => setTimeout(resolve, 1_100))
+    hook.resumeGoal("s1")
+    wakeGoal(ctx.directory, "s1")
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(sent).toHaveLength(2)
+    expect(sent[1]?.text).toContain("A paused goal is being resumed.")
   })
 
   test("a continuation the gate still holds is not counted and is tried again shortly", async () => {
