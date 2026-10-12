@@ -10,6 +10,7 @@ import type { BackgroundTaskSnapshot } from "../background-agent/types"
 export type TuiMirrorClient = {
   readonly session: {
     readonly status: () => Promise<unknown>
+    readonly activeStatus?: () => Promise<unknown>
     readonly messages: (input: { readonly path: { readonly id: string } }) => Promise<unknown>
   }
 }
@@ -57,7 +58,7 @@ async function readStatuses(input: BuildTuiRuntimeSnapshotInput): Promise<Sessio
     return input.getStatuses()
   }
 
-  const response = await input.client.session.status()
+  const response = await (input.client.session.activeStatus?.() ?? input.client.session.status())
   return normalizeSDKResponse<SessionStatusMap>(response, {})
 }
 

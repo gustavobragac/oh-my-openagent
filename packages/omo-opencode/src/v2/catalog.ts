@@ -162,6 +162,24 @@ function rememberSession(merged: Map<string, Record<string, unknown>>, session: 
   }))
 }
 
+/** The sidebar needs active drains, not a paginated scan of session history. */
+export async function activeSessionStatusMap(input: {
+  origin: string | undefined
+  fetchImpl: typeof fetch
+  state: AdapterState
+}): Promise<Record<string, { type: string }>> {
+  const observed = () => Object.fromEntries(input.state.status)
+  if (!input.origin) return observed()
+  try {
+    const active = await activeSessions(input.origin, input.fetchImpl)
+    // Read events after the request: a session may finish while HTTP is in flight.
+    return { ...active, ...observed() }
+  } catch (error) {
+    if (error instanceof SessionHttpError && error.status === 401) throw error
+    return observed()
+  }
+}
+
 export async function sessionStatusMap(input: {
   origin: string | undefined
   fetchImpl: typeof fetch
