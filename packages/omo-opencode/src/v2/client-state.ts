@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { resolveOmoConfigPaths } from "@oh-my-opencode/omo-config-core"
@@ -14,19 +14,10 @@ import { resolveBaseDir } from "@oh-my-opencode/team-core/team-registry/paths"
 import { loadRuntimeState } from "@oh-my-opencode/team-core/team-state-store/store"
 import { listUnreadMessages } from "@oh-my-opencode/team-core/team-mailbox"
 
-import { listRegisteredBackgroundTasks } from "../features/background-agent/task-registry"
 import type { BackgroundTask } from "../features/background-agent/types"
 import { GoalFileSchema } from "../hooks/goal/types"
 import { log } from "../shared/logger"
-import type { BackgroundTaskControl } from "../features/background-agent/task-registry"
-import {
-  CLIENT_STATE_SCHEMA,
-  createTransitionWatcher,
-  processClientRequests,
-  providerHealth,
-  snapshotOf,
-  type Notice,
-} from "./client-control"
+export { startClientStatePublisher } from "./client-state-publisher"
 
 // Clients such as the OpenChamber extension read these files from
 // `<project>/.omo/v2-state/`, keyed by the session that owns the work.
@@ -235,16 +226,6 @@ export async function teamRunsByLead(config: TeamModeConfig): Promise<Record<str
   return byLead
 }
 
-function writeIfChanged(directory: string, name: string, value: Record<string, unknown>): void {
-  const file = join(directory, name)
-  const exists = existsSync(file)
-  if (!exists && Object.keys(value).length === 0) return
-  const text = JSON.stringify(value)
-  if (exists && readFileSync(file, "utf8") === text) return
-  mkdirSync(directory, { recursive: true })
-  writeFileSync(file, text)
-}
-
 /**
  * Runs `task` every `intervalMs`, one run at a time. A run that takes longer
  * than `timeoutMs` is abandoned (logged) so a hung call cannot stop the loop.
@@ -278,8 +259,6 @@ export function startSerialLoop(name: string, task: () => Promise<void>, interva
   return () => clearInterval(interval)
 }
 
-const META_INTERVAL_MS = 30_000
-
 /** The OMO config files this instance loads, so a client can show or edit them. */
 export function configPathsOf(directory: string): { userConfigPath: string; projectConfigPaths: string[] } {
   const candidates = resolveOmoConfigPaths({ cwd: directory })
@@ -287,57 +266,4 @@ export function configPathsOf(directory: string): { userConfigPath: string; proj
     userConfigPath: candidates.find((candidate) => candidate.scope === "user")?.path ?? "",
     projectConfigPaths: candidates.filter((candidate) => candidate.scope === "project").map((candidate) => candidate.path),
   }
-}
-
-export function startClientStatePublisher(input: {
-  stateDirectory: string
-  teamMode?: TeamModeConfig
-  intervalMs?: number
-  owner: string
-  readTasks?: () => readonly BackgroundTask[]
-  /** Model chains per category, for the client's model health view. */
-  categories?: Record<string, string[]>
-  /** The background manager of this instance, for cancel / retry requests. */
-  control?: () => BackgroundTaskControl | undefined
-  /** Native notifications for failed tasks, finished tasks, plans and goals. */
-  notify?: (notice: Notice) => Promise<void>
-}): () => void {
-  const readTasks = input.readTasks ?? (() => listRegisteredBackgroundTasks(input.owner))
-  let running = false
-  let metaAt = 0
-  const configPaths = configPathsOf(input.owner)
-  const transitions = createTransitionWatcher()
-  const publish = async () => {
-    if (running) return
-    running = true
-    try {
-      await processClientRequests(input.stateDirectory, input.control?.())
-      const tasks = readTasks()
-      const plans = plansBySession(input.owner)
-      const goals = goalsBySession(input.owner)
-      writeIfChanged(input.stateDirectory, "background.json", backgroundTasksByParent(tasks))
-      writeIfChanged(input.stateDirectory, "plans.json", plans)
-      writeIfChanged(input.stateDirectory, "goals.json", goals)
-      writeIfChanged(input.stateDirectory, "health.json", { categories: input.categories ?? {}, providers: providerHealth(tasks, Date.now()) })
-      // A heartbeat, not a change: clients tell a stopped plugin from an idle one by its age.
-      if (Date.now() - metaAt >= META_INTERVAL_MS) {
-        metaAt = Date.now()
-        writeIfChanged(input.stateDirectory, "meta.json", { schema: CLIENT_STATE_SCHEMA, publishedAt: metaAt, heartbeatMs: META_INTERVAL_MS, ...configPaths })
-      }
-      for (const notice of transitions(snapshotOf({ tasks, goals, plans }))) await input.notify?.(notice)
-      if (input.teamMode?.enabled) {
-        writeIfChanged(input.stateDirectory, "teams.json", await teamRunsByLead(input.teamMode))
-      }
-    } catch (error) {
-      log("[oh-my-openagent] client state publish failed", {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    } finally {
-      running = false
-    }
-  }
-  void publish()
-  const timer = setInterval(() => void publish(), input.intervalMs ?? 1500)
-  timer.unref?.()
-  return () => clearInterval(timer)
 }
