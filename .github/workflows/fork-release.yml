@@ -38,8 +38,12 @@ jobs:
         with:
           node-version: 24
 
+      # The install regenerates tracked omo-codex/omo-senpi artifacts; the release
+      # script needs a clean tree and rebuilds them itself.
       - name: Install
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          git checkout -- .
 
       - name: Test the V2 adapter
         run: bun test packages/omo-opencode/src/v2 packages/omo-config-core/src/loader script/fork-release-notes.test.ts
