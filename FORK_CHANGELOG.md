@@ -10,6 +10,12 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.2] - 2026-10-13
+
+### Fixes
+
+- Pause and Resume on an OMO goal in OpenChamber now take effect. Pause no longer flips back to active or lets the next continuation through, and Resume continues an idle session right away instead of waiting for an event that never came.
+
 ## [5.0.1-fork.1] - 2026-10-11
 
 **The first release of the OpenCode 2 line.** Until now the fork ran from a checkout built on the machine. It now ships as built releases that OpenCode installs and updates from the repository.
