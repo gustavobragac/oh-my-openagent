@@ -50,6 +50,7 @@
   },
   "files": [
     "THIRD-PARTY-NOTICES.md",
+    "assets/omo.schema.json",
     "index.js",
     "dist",
     "bin",

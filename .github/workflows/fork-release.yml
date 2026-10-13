@@ -1,0 +1,60 @@
+name: Fork release
+# Builds a release of this fork from main and publishes it as a GitHub release.
+# The tag points at a commit whose tree is the built npm package (see
+# script/fork-release.sh), so OpenCode can install
+#   oh-my-opencode@git+https://github.com/<owner>/oh-my-openagent.git#releases
+# (the `releases` branch moves to each release; #v<version> pins one).
+# Add the version's section to FORK_CHANGELOG.md on main first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, such as 5.0.1-fork.1
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      # The build runs `npm ci` in packages that use workspace:* dependencies.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Test the V2 adapter
+        run: bun test packages/omo-opencode/src/v2 packages/omo-config-core/src/loader script/fork-release-notes.test.ts
+
+      - name: Build and tag
+        env:
+          VERSION: ${{ inputs.version }}
+          NOTES_OUT: ${{ runner.temp }}/notes.md
+        run: |
+          git config user.name "fork-release"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          script/fork-release.sh "$VERSION" --push
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
