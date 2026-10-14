@@ -9,6 +9,7 @@ import { getSessionAgent } from "../../features/claude-code-session-state"
 import { normalizeSessionId, readBoulderState } from "../../features/boulder-state"
 import { getMessageDir } from "../../shared/opencode-message-dir"
 import { isSqliteBackend } from "../../shared/opencode-storage-detection"
+import { readCurrentSessionAgent } from "../../shared/current-session-agent"
 
 type OpencodeClient = PluginInput["client"]
 
@@ -20,6 +21,9 @@ async function getAgentFromMessageFiles(
   sessionID: string,
   client?: OpencodeClient
 ): Promise<string | undefined> {
+  const currentAgent = await readCurrentSessionAgent(client, sessionID)
+  if (currentAgent !== undefined) return isCompactionAgent(currentAgent) ? undefined : currentAgent
+
   if (isSqliteBackend() && client) {
     const firstAgent = await findFirstMessageWithAgentFromSDK(client, sessionID)
     if (firstAgent && !isCompactionAgent(firstAgent)) return firstAgent
