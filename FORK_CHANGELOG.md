@@ -10,6 +10,12 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.4] - 2026-10-14
+
+### Fixes
+
+- Tool calls no longer stall OpenCode in sessions with image attachments. Atlas and the Prometheus guard read the whole session history on every tool call to learn which agent was running, and OpenCode revalidates every stored image on each read. They now read the session's current agent.
+
 ## [5.0.1-fork.3] - 2026-10-14
 
 ### Fixes
