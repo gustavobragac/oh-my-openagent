@@ -77,6 +77,11 @@ export function createV1PluginInput(ctx: V2Context, deps: FacadeDeps = {}): {
       if (!sessionID) return sdkResult(undefined)
       return sdkResult(withParent(await sessionApi.get({ sessionID }), state))
     },
+    async currentAgent(input: unknown) {
+      const sessionID = sessionIDFrom(input)
+      if (!sessionID) return sdkResult(undefined)
+      return sdkResult((await sessionApi.get({ sessionID })).agent)
+    },
     async messages(input: unknown) {
       return sdkResult(await readMessages(sessionApi, input))
     },

@@ -336,6 +336,36 @@ describe("OpenCode V2 adapter", () => {
     expect(schema.required).toEqual(["prompt"])
   })
 
+  test("sidebar reads current agent metadata through the facade without loading context", async () => {
+    // given
+    const fake = createFakeContext()
+    const requests: string[] = []
+    let agent = "Atlas"
+    fake.ctx.session.get = async ({ sessionID }) => {
+      requests.push(sessionID)
+      return { id: sessionID, agent }
+    }
+    fake.ctx.session.context = async () => { throw new Error("sidebar must not hydrate image history") }
+    const v1 = createV1PluginInput(fake.ctx)
+    const sidebar = await import("../features/tui-sidebar/snapshot-builder")
+    const projectDir = mkdtempSync(join(tmpdir(), "omo-v2-current-agent-"))
+    directories.push(projectDir)
+    const input = {
+      client: v1.client,
+      projectDir,
+      backgroundManager: { getTasksSnapshot: () => [] },
+      getStatuses: async () => ({ ses_1: { type: "running" }, ses_2: { type: "busy" } }),
+    }
+    // when
+    const before = await sidebar.buildTuiRuntimeSnapshot(input)
+    agent = "Hephaestus"
+    const after = await sidebar.buildTuiRuntimeSnapshot(input)
+    // then
+    expect(before.activeAgents.map((row) => row.name)).toEqual(["atlas", "atlas"])
+    expect(after.activeAgents.map((row) => row.name)).toEqual(["hephaestus", "hephaestus"])
+    expect(requests).toEqual(["ses_1", "ses_2", "ses_1", "ses_2"])
+  })
+
   test("facade maps session reads and logs toasts", async () => {
     const fake = createFakeContext()
     const v1 = createV1PluginInput(fake.ctx)
