@@ -50,6 +50,7 @@ TUI side:     1s poll → readMirror() → derivers → computeView() → viewKe
 - Failure means degrade, never throw: bad JSON, missing files, stale data all collapse to `null` / `{ kind: "none" }`. Only non-Error throws are rethrown.
 - All writes go through `writeFileAtomically`; readers validate version, project dir, and freshness before trusting the file.
 - Privacy: goal titles are redacted to `null` before writing; render side shows "private".
+- V2 active-agent labels use the configured `Session.Info.agent` via the metadata-only `currentAgent` capability. Missing/failed metadata falls back to the session ID, never to full context (which revalidates historical image attachments). Legacy V1 clients retain last-message agent inference.
 
 ## ANTI-PATTERNS
 
