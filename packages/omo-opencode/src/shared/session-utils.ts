@@ -3,10 +3,14 @@ import { getMessageDir } from "./opencode-message-dir"
 import { isSqliteBackend } from "./opencode-storage-detection"
 import { log } from "./logger"
 import { getAgentConfigKey } from "./agent-display-names"
+import { readCurrentSessionAgent } from "./current-session-agent"
 import type { PluginInput } from "@opencode-ai/plugin"
 
 export async function isCallerOrchestrator(sessionID?: string, client?: PluginInput["client"]): Promise<boolean> {
   if (!sessionID) return false
+
+  const currentAgent = await readCurrentSessionAgent(client, sessionID)
+  if (currentAgent !== undefined) return getAgentConfigKey(currentAgent) === "atlas"
 
   if (isSqliteBackend() && client) {
     try {
