@@ -10,6 +10,12 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.3] - 2026-10-14
+
+### Fixes
+
+- The sidebar no longer keeps a CPU core busy in sessions with image attachments. It read each active session's whole history every two seconds just to show the agent's name, and OpenCode revalidates every stored image on each read. It now reads the session's current agent instead.
+
 ## [5.0.1-fork.2] - 2026-10-13
 
 ### Fixes
