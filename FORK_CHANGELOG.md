@@ -10,6 +10,12 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.6] - 2026-10-14
+
+### Fixes
+
+- The end of every turn no longer stalls OpenCode in sessions with image attachments. The todo continuation read the whole session history before checking for pending todos; it now reads the history only when there are todos to continue.
+
 ## [5.0.1-fork.5] - 2026-10-14
 
 ### Fixes
