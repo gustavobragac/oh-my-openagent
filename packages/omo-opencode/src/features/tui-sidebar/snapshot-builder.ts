@@ -11,6 +11,7 @@ export type TuiMirrorClient = {
   readonly session: {
     readonly status: () => Promise<unknown>
     readonly activeStatus?: () => Promise<unknown>
+    readonly currentAgent?: (input: { readonly path: { readonly id: string } }) => Promise<unknown>
     readonly messages: (input: { readonly path: { readonly id: string } }) => Promise<unknown>
   }
 }
@@ -47,9 +48,24 @@ export async function buildTuiRuntimeSnapshot(
     version: MIRROR_SCHEMA_VERSION,
     projectDir: canonicalProjectDir(input.projectDir),
     updatedAt: Date.now(),
-    activeAgents: await activeAgentsFromStatuses(statuses, input.client, input.sessionAgentResolver ?? getLastAgentFromSession),
+    activeAgents: await activeAgentsFromStatuses(statuses, input.client, input.sessionAgentResolver ?? resolveSessionAgent),
     jobBoard: input.backgroundManager.getTasksSnapshot().map(toJobRow),
     loop: loop.kind === "live" ? redactLoopText(loop) : null,
+  }
+}
+
+async function resolveSessionAgent(sessionID: string, client: TuiMirrorClient): Promise<string | null> {
+  if (!client.session.currentAgent) return getLastAgentFromSession(sessionID, client)
+
+  // V2 displays the configured agent, not a historical message author. Never
+  // hydrate attachment history if metadata is missing or the session disappeared.
+  try {
+    const response = await client.session.currentAgent({ path: { id: sessionID } })
+    const agent = normalizeSDKResponse<unknown>(response, null)
+    return typeof agent === "string" && agent.trim().length > 0 ? agent.toLowerCase() : null
+  } catch (error) {
+    if (!(error instanceof Error)) throw error
+    return null
   }
 }
 
