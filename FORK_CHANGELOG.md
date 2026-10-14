@@ -10,6 +10,12 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.5] - 2026-10-14
+
+### Fixes
+
+- The fork.4 fix now also covers sessions that never switched agents, such as sessions created through the API, which still read their whole history on every tool call.
+
 ## [5.0.1-fork.4] - 2026-10-14
 
 ### Fixes
