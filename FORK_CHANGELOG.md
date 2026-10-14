@@ -10,6 +10,12 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.7] - 2026-10-14
+
+### Fixes
+
+- On a headless Linux server, OMO no longer builds desktop notifications nobody can see. Building one read the whole session history at the end of every turn, which stalled OpenCode in sessions with image attachments. OpenChamber's notifications are unaffected.
+
 ## [5.0.1-fork.6] - 2026-10-14
 
 ### Fixes
