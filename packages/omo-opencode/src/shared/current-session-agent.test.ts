@@ -36,6 +36,18 @@ describe("tool hook agent lookups on OpenCode 2", () => {
     expect(messages).not.toHaveBeenCalled()
   })
 
+  it.each([undefined, null, ""])("treats a session without a configured agent (%s) as the default agent without reading history", async (agent) => {
+    // given
+    const { client, messages } = v2Client(agent)
+    // when
+    const orchestrator = await isCallerOrchestrator("ses_tool_hook_default", client)
+    const planning = await getAgentFromSession("ses_tool_hook_default", "/tmp/omo-no-boulder", client)
+    // then
+    expect(orchestrator).toBe(false)
+    expect(planning).toBeUndefined()
+    expect(messages).not.toHaveBeenCalled()
+  })
+
   it("ignores the compaction agent like the history lookup does", async () => {
     // given
     const { client, messages } = v2Client("compaction")
