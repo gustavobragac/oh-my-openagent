@@ -89,6 +89,32 @@ export async function handleSessionIdle(args: {
     return
   }
 
+  let todos: Todo[] = []
+  try {
+    const response = await ctx.client.session.todo({ path: { id: sessionID } })
+    todos = normalizeSDKResponse(response, [] as Todo[], { preferResponseOnMissingData: true })
+  } catch (error) {
+    const loggedError = error instanceof Error ? { name: error.name, message: error.message } : String(error)
+    log(`[${HOOK_NAME}] Todo fetch failed`, { sessionID, error: loggedError })
+    return
+  }
+
+  if (!todos || todos.length === 0) {
+    sessionStateStore.resetContinuationProgress(sessionID)
+    log(`[${HOOK_NAME}] No todos`, { sessionID })
+    return
+  }
+
+  const incompleteCount = getIncompleteCount(todos)
+  if (incompleteCount === 0) {
+    state.allTodosCompletedAt = Date.now()
+    sessionStateStore.resetContinuationProgress(sessionID)
+    log(`[${HOOK_NAME}] All todos complete`, { sessionID, total: todos.length })
+    return
+  }
+
+  // Only now read the history: on OpenCode 2 it decodes and revalidates every stored
+  // attachment, and most idle sessions have no pending todos to continue.
   let prefetchedMessages: MessageWithInfo[] | undefined
   try {
     const messagesResp = await ctx.client.session.messages({
@@ -111,30 +137,6 @@ export async function handleSessionIdle(args: {
   } catch (error) {
     const loggedError = error instanceof Error ? { name: error.name, message: error.message } : String(error)
     log(`[${HOOK_NAME}] Messages fetch failed, skipping continuation`, { sessionID, error: loggedError })
-    return
-  }
-
-  let todos: Todo[] = []
-  try {
-    const response = await ctx.client.session.todo({ path: { id: sessionID } })
-    todos = normalizeSDKResponse(response, [] as Todo[], { preferResponseOnMissingData: true })
-  } catch (error) {
-    const loggedError = error instanceof Error ? { name: error.name, message: error.message } : String(error)
-    log(`[${HOOK_NAME}] Todo fetch failed`, { sessionID, error: loggedError })
-    return
-  }
-
-  if (!todos || todos.length === 0) {
-    sessionStateStore.resetContinuationProgress(sessionID)
-    log(`[${HOOK_NAME}] No todos`, { sessionID })
-    return
-  }
-
-  const incompleteCount = getIncompleteCount(todos)
-  if (incompleteCount === 0) {
-    state.allTodosCompletedAt = Date.now()
-    sessionStateStore.resetContinuationProgress(sessionID)
-    log(`[${HOOK_NAME}] All todos complete`, { sessionID, total: todos.length })
     return
   }
 

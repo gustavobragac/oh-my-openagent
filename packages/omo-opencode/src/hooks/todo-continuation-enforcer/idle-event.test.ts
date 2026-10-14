@@ -85,6 +85,34 @@ describe("handleSessionIdle", () => {
     expect(resetCalls).toEqual([sessionID])
   })
 
+  it.each([
+    ["no todos", []],
+    ["only completed todos", [{ id: "todo-1", content: "Ship", status: "completed", priority: "high" }]],
+  ])("does not read session history on idle when there are %s", async (_label, todos) => {
+    // given
+    const sessionID = "ses_idle_without_pending_todos"
+    const { store } = createStateStore()
+    let historyReads = 0
+    const ctx = {
+      client: {
+        session: {
+          messages: async () => {
+            historyReads++
+            return { data: [] }
+          },
+          todo: async () => ({ data: todos }),
+        },
+      },
+      directory: "/tmp/test",
+    }
+
+    // when
+    await handleSessionIdle({ ctx: ctx as never, sessionID, sessionStateStore: store })
+
+    // then
+    expect(historyReads).toBe(0)
+  })
+
   it("resets continuation progress once when every todo is complete", async () => {
     // given
     const sessionID = "ses_completed_todos"
