@@ -10,7 +10,8 @@ export async function isCallerOrchestrator(sessionID?: string, client?: PluginIn
   if (!sessionID) return false
 
   const currentAgent = await readCurrentSessionAgent(client, sessionID)
-  if (currentAgent !== undefined) return getAgentConfigKey(currentAgent) === "atlas"
+  if (currentAgent.kind === "agent") return getAgentConfigKey(currentAgent.name) === "atlas"
+  if (currentAgent.kind === "default") return false
 
   if (isSqliteBackend() && client) {
     try {
