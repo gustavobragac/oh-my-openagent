@@ -2,9 +2,14 @@ import { platform } from "os"
 
 export type Platform = "darwin" | "linux" | "win32" | "unsupported"
 
-export function detectPlatform(): Platform {
-  const detected = platform()
-  if (detected === "darwin" || detected === "linux" || detected === "win32") return detected
+export function detectPlatform(
+  detected: string = platform(),
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Platform {
+  if (detected === "darwin" || detected === "win32") return detected
+  // A headless Linux server has no notification daemon to show anything, and building the
+  // notification reads the whole session history on every idle.
+  if (detected === "linux") return env.DISPLAY || env.WAYLAND_DISPLAY ? "linux" : "unsupported"
   return "unsupported"
 }
 
