@@ -7,5 +7,5 @@ type DispatchFallbackRetryOptions = {
     resolvedAgent?: string;
     source: string;
 };
-export declare function dispatchFallbackRetry(deps: HookDeps, helpers: AutoRetryHelpers, options: DispatchFallbackRetryOptions): Promise<void>;
+export declare function dispatchFallbackRetry(deps: HookDeps, helpers: AutoRetryHelpers, options: DispatchFallbackRetryOptions): Promise<boolean>;
 export {};

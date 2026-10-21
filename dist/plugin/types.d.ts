@@ -7,6 +7,21 @@ type ChatHeadersHook = PluginInstance extends {
 } ? T : (input: unknown, output: unknown) => Promise<void>;
 export type PluginInterface = Omit<PluginInstance, "experimental.session.compacting" | "chat.headers"> & {
     "chat.headers"?: ChatHeadersHook;
+    "session.retry"?: (input: {
+        sessionID: string;
+        agent: string;
+        model: {
+            providerID: string;
+            id: string;
+            variant?: string;
+        };
+        error: {
+            type: string;
+            message: string;
+            status?: number;
+        };
+        attempt: number;
+    }) => Promise<boolean>;
 };
 export type ToolsRecord = Record<string, ToolDefinition>;
 export type { TmuxConfig };

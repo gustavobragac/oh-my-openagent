@@ -89,6 +89,21 @@ export interface RuntimeFallbackHook {
             properties?: unknown;
         };
     }) => Promise<void>;
+    "session.retry"?: (input: {
+        sessionID: string;
+        agent?: string;
+        model: {
+            providerID: string;
+            id: string;
+            variant?: string;
+        };
+        error: {
+            type: string;
+            message: string;
+            status?: number;
+        };
+        attempt: number;
+    }) => Promise<boolean>;
     "chat.message"?: (input: {
         sessionID: string;
         agent?: string;

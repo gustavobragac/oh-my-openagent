@@ -1,5 +1,10 @@
 import { Plugin as TuiPlugin } from "@opencode/plugin/tui";
 import type { TuiPluginModule } from "@opencode-ai/plugin/tui";
+type SolidRuntime<Node> = {
+    readonly createElement: (tag: string) => Node;
+    readonly insert: (parent: Node, child: Node | string) => unknown;
+    readonly setProp: (node: Node, name: string, value: unknown) => unknown;
+};
 type SidebarSlotRegistration<Node> = {
     readonly order: number;
     readonly slots: {
@@ -13,7 +18,7 @@ type RegisterSidebarContentSlotInput<Node> = {
 };
 export declare function registerSidebarContentSlot<Node>({ registerSlot, requestRender, renderSidebar, }: RegisterSidebarContentSlotInput<Node>): void;
 export declare function handleTuiPollError(error: unknown, reportPollError?: (error: Error) => void): void;
-export declare function registerV2Sidebar(context: {
+export declare function registerV2Sidebar<Node>(context: {
     data: {
         session: {
             list: () => ReadonlyArray<{
@@ -37,7 +42,7 @@ export declare function registerV2Sidebar(context: {
             }) => unknown;
         }) => void;
     };
-}): () => ReadonlyArray<string>;
+}, solid: SolidRuntime<Node>): () => ReadonlyArray<string>;
 export declare const legacyTuiModule: TuiPluginModule;
 declare const _default: {
     id: string;

@@ -72196,8 +72196,8 @@ function lt_default() {
     localeError: error33()
   };
 }
-var capitalizeFirstCharacter = (text) => {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+var capitalizeFirstCharacter = (text2) => {
+  return text2.charAt(0).toUpperCase() + text2.slice(1);
 }, error33 = () => {
   const Sizable = {
     string: {
@@ -87981,7 +87981,7 @@ init_shared();
 // package.json
 var package_default = {
   name: "oh-my-opencode",
-  version: "5.0.1-fork.7",
+  version: "5.0.1-fork.8",
   description: "The Best AI Agent Harness - Batteries-Included OpenCode Plugin with Multi-Model Orchestration, Parallel Background Agents, and Crafted LSP/AST Tools",
   main: "./dist/index.js",
   types: "dist/index.d.ts",
@@ -88636,6 +88636,14 @@ function compareJobs(left, right) {
   return left.title.localeCompare(right.title);
 }
 
+// packages/omo-opencode/src/features/tui-sidebar/element-helpers.ts
+function box(props, children = []) {
+  return { kind: "box", props, children };
+}
+function text(props, value) {
+  return { kind: "text", props, text: value };
+}
+
 // packages/omo-opencode/src/features/tui-sidebar/mirror-io.ts
 import { mkdirSync as mkdirSync6, readFileSync as readFileSync4 } from "fs";
 init_write_file_atomically();
@@ -88738,14 +88746,6 @@ function readMirror(projectDir) {
     return null;
   }
   return snapshot;
-}
-
-// packages/omo-opencode/src/features/tui-sidebar/element-helpers.ts
-function box(props, children = []) {
-  return { kind: "box", props, children };
-}
-function text(props, value) {
-  return { kind: "text", props, text: value };
 }
 
 // packages/omo-opencode/src/features/tui-sidebar/render-view.ts
@@ -89095,14 +89095,14 @@ var module = {
     });
   }
 };
-function registerV2Sidebar(context) {
+function registerV2Sidebar(context, solid) {
   context.ui.toast.show({ title: "oh-my-openagent", message: "Sidebar ready", variant: "info" });
   let lines = [];
   context.ui.slot({
     append: "sidebar.content",
     render() {
       lines = context.data.session.list().map((session) => session.title ?? session.id);
-      return lines;
+      return materialize(lines.map((line) => text({}, line)), solid);
     }
   });
   return () => lines;
@@ -89112,8 +89112,15 @@ var tui_default = {
   ...TuiPlugin.define({
     id: "oh-my-openagent",
     setup(context) {
-      registerV2Sidebar(context);
-      log2("[oh-my-openagent] OpenCode V2 TUI plugin loaded");
+      import("@opentui/solid").catch(() => null).then((solid) => {
+        if (!solid) {
+          return;
+        }
+        registerV2Sidebar(context, solid);
+        log2("[oh-my-openagent] OpenCode V2 TUI plugin loaded");
+      }).catch((error62) => {
+        log2("[oh-my-openagent] OpenCode V2 TUI plugin setup failed", { error: error62 });
+      });
     }
   }),
   tui: module.tui

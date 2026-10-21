@@ -98400,7 +98400,7 @@ function getCachedVersion(options = {}) {
 // package.json
 var package_default = {
   name: "oh-my-opencode",
-  version: "5.0.1-fork.7",
+  version: "5.0.1-fork.8",
   description: "The Best AI Agent Harness - Batteries-Included OpenCode Plugin with Multi-Model Orchestration, Parallel Background Agents, and Crafted LSP/AST Tools",
   main: "./dist/index.js",
   types: "dist/index.d.ts",
@@ -120517,7 +120517,7 @@ async function dispatchFallbackRetry(deps, helpers, options) {
         status: dispatchOutcome.status,
         reason: dispatchOutcome.reason
       });
-      return;
+      return false;
     }
     if (deps.config.notify_on_fallback) {
       await deps.ctx.client.tui.showToast({
@@ -120529,13 +120529,14 @@ async function dispatchFallbackRetry(deps, helpers, options) {
         }
       }).catch(() => {});
     }
-    return;
+    return true;
   }
   log2(`[${HOOK_NAME13}] Fallback preparation failed`, {
     sessionID: options.sessionID,
     source: options.source,
     error: result.error
   });
+  return false;
 }
 
 // packages/omo-opencode/src/hooks/runtime-fallback/session-status-handler.ts
@@ -120589,7 +120590,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
     const model = normalizeModelToCanonicalString(props?.model);
     const timeoutEnabled = deps.config.timeout_seconds > 0;
     if (!sessionID || status?.type !== "retry")
-      return;
+      return false;
     const retryMessage = typeof status.message === "string" ? status.message : "";
     const retrySignal = extractAutoRetrySignal({ status: retryMessage, message: retryMessage });
     if (!retrySignal) {
@@ -120603,14 +120604,14 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
             retryMessage
           });
         }
-        return;
+        return false;
       }
     }
     const retryModel = model ?? "unknown";
     const retryKey = `${retryModel}:${extractRetryAttempt(status.attempt, retryMessage)}:${normalizeRetryStatusMessage(retryMessage)}`;
     const seenRetryKeys = sessionStatusRetryKeys.get(sessionID) ?? new Set;
     if (seenRetryKeys.has(retryKey)) {
-      return;
+      return false;
     }
     seenRetryKeys.add(retryKey);
     sessionStatusRetryKeys.set(sessionID, seenRetryKeys);
@@ -120628,7 +120629,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
         if (seenRetryKeys?.size === 0) {
           sessionStatusRetryKeys.delete(sessionID);
         }
-        return;
+        return false;
       }
     }
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent);
@@ -120637,7 +120638,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
       if (!sessionStates.has(sessionID)) {
         sessionStatusRetryKeys.delete(sessionID);
       }
-      return;
+      return false;
     }
     let state3 = sessionStates.get(sessionID);
     if (!state3) {
@@ -120651,7 +120652,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
       if (!initialModel) {
         sessionStatusRetryKeys.delete(sessionID);
         log2(`[${HOOK_NAME13}] session.status retry missing model info, cannot fallback`, { sessionID });
-        return;
+        return false;
       }
       state3 = createFallbackState(initialModel);
       sessionStates.set(sessionID, state3);
@@ -120663,7 +120664,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
           sessionID,
           pendingFallbackModel: state3.pendingFallbackModel
         });
-        return;
+        return true;
       }
       if (timeoutEnabled) {
         log2(`[${HOOK_NAME13}] Clearing pending fallback due to provider auto-retry signal`, {
@@ -120677,7 +120678,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
           sessionID,
           pendingFallbackModel: state3.pendingFallbackModel
         });
-        return;
+        return false;
       }
     }
     log2(`[${HOOK_NAME13}] Detected provider auto-retry signal in session.status`, {
@@ -120686,7 +120687,7 @@ function createSessionStatusHandler(deps, helpers, sessionStatusRetryKeys) {
       retryAttempt: status.attempt
     });
     await helpers.abortSessionRequest(sessionID, "session.status.retry-signal");
-    await dispatchFallbackRetry(deps, helpers, {
+    return await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state: state3,
       fallbackModels,
@@ -121395,6 +121396,7 @@ function createRuntimeFallbackHook(ctx, options, factoryOverrides = {}) {
   const messageUpdateHandler = factories.createMessageUpdateHandler(deps, helpers);
   const chatMessageHandler = factories.createChatMessageHandler(deps);
   const firstPromptWatchdog = factories.createFirstPromptWatchdog(deps, helpers);
+  const sessionStatusHandler = createSessionStatusHandler(deps, helpers, deps.sessionStatusRetryKeys);
   let cleanupInterval4 = null;
   let intervalStarted = false;
   const ensureInterval = () => {
@@ -121438,6 +121440,12 @@ function createRuntimeFallbackHook(ctx, options, factoryOverrides = {}) {
   };
   return {
     event: eventHandler,
+    "session.retry": async (input) => sessionStatusHandler({
+      sessionID: input.sessionID,
+      agent: input.agent,
+      model: input.model,
+      status: { type: "retry", message: input.error.message, attempt: input.attempt }
+    }),
     "chat.message": chatMessageHandler,
     dispose
   };
@@ -176181,6 +176189,13 @@ function createToolExecuteBeforeHandler3(args) {
 // packages/omo-opencode/src/plugin-interface.ts
 function createPluginInterface(args) {
   const { ctx, pluginConfig, firstMessageVariantGate, managers: managers2, hooks: hooks2, tools } = args;
+  const eventHandler = createEventHandler2({
+    ctx,
+    pluginConfig,
+    firstMessageVariantGate,
+    managers: managers2,
+    hooks: hooks2
+  });
   return {
     tool: tools,
     "chat.params": async (input, output) => {
@@ -176213,13 +176228,8 @@ function createPluginInterface(args) {
     }),
     "experimental.chat.system.transform": createSystemTransformHandler(pluginConfig.default_mode, getUltraworkMessage, hooks2.keywordDetector),
     config: managers2.configHandler,
-    event: createEventHandler2({
-      ctx,
-      pluginConfig,
-      firstMessageVariantGate,
-      managers: managers2,
-      hooks: hooks2
-    }),
+    event: eventHandler,
+    "session.retry": async (input) => hooks2.runtimeFallback?.["session.retry"]?.(input) ?? false,
     "tool.definition": createToolDefinitionHandler({
       hooks: hooks2
     }),
@@ -188864,6 +188874,7 @@ async function registerV1Hooks(ctx, hooks2, state3) {
   const toolBefore = asHandler(hooks2["tool.execute.before"]);
   const toolAfter = asHandler(hooks2["tool.execute.after"]);
   const eventHandler = asHandler(hooks2.event);
+  const retryHandler = typeof hooks2["session.retry"] === "function" ? hooks2["session.retry"] : undefined;
   const shellEnv = asHandler(hooks2["shell.env"]);
   const permissionAsk = asHandler(hooks2["permission.ask"]);
   if (chatMessage) {
@@ -189008,6 +189019,21 @@ async function registerV1Hooks(ctx, hooks2, state3) {
         }
         if (typeof output.message === "string")
           event.message = output.message;
+      });
+    });
+  }
+  if (retryHandler) {
+    await ctx.session.hook("retry", async (event) => {
+      await safeCall("session.retry", async () => {
+        const handled = await retryHandler({
+          sessionID: event.sessionID,
+          agent: event.agent,
+          model: event.model,
+          error: event.error,
+          attempt: event.attempt
+        });
+        if (handled)
+          event.decision = { retry: false };
       });
     });
   }
