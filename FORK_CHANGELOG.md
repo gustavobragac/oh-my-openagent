@@ -10,6 +10,13 @@ Releases of [rubimpassos/oh-my-openagent](https://github.com/rubimpassos/oh-my-o
 
 To release: add a `## [<version>] - YYYY-MM-DD` section here on `main` (with the `Fork-Patch: v2-support` trailer), then run the **Fork release** workflow with that version.
 
+## [5.0.1-fork.8] - 2026-10-21
+
+### Fixes
+
+- OpenCode 2.1 no longer crashes with "Orphan text error" when the sidebar shows a session title. The V2 sidebar returned bare strings; it now renders each title inside a `<text>` node.
+- A provider quota or rate-limit error on OpenCode 2 now reaches OMO's runtime fallback. OpenCode 2 reports retries through the session retry hook, which OMO did not listen to, so OpenCode kept retrying the same model. When OMO has a fallback model it takes over the retry; otherwise OpenCode's retry stays as it was.
+
 ## [5.0.1-fork.7] - 2026-10-14
 
 ### Fixes
