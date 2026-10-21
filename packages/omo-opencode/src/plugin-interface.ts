@@ -32,6 +32,13 @@ export function createPluginInterface(args: {
 }): PluginInterface {
   const { ctx, pluginConfig, firstMessageVariantGate, managers, hooks, tools } =
     args
+  const eventHandler = createEventHandler({
+    ctx,
+    pluginConfig,
+    firstMessageVariantGate,
+    managers,
+    hooks,
+  })
 
   return {
     tool: tools,
@@ -84,13 +91,9 @@ export function createPluginInterface(args: {
 
     config: managers.configHandler,
 
-    event: createEventHandler({
-      ctx,
-      pluginConfig,
-      firstMessageVariantGate,
-      managers,
-      hooks,
-    }),
+    event: eventHandler,
+
+    "session.retry": async (input) => hooks.runtimeFallback?.["session.retry"]?.(input) ?? false,
 
     "tool.definition": createToolDefinitionHandler({
       hooks,

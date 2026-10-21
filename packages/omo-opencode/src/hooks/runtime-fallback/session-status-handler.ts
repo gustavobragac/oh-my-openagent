@@ -23,14 +23,14 @@ export function createSessionStatusHandler(
     sessionRetryInFlight,
   } = deps
 
-  return async (props: Record<string, unknown> | undefined) => {
+  return async (props: Record<string, unknown> | undefined): Promise<boolean> => {
     const sessionID = resolveSessionEventID(props)
     const status = props?.status as { type?: string; message?: string; attempt?: number } | undefined
     const agent = props?.agent as string | undefined
     const model = normalizeModelToCanonicalString(props?.model)
     const timeoutEnabled = deps.config.timeout_seconds > 0
 
-    if (!sessionID || status?.type !== "retry") return
+    if (!sessionID || status?.type !== "retry") return false
 
     const retryMessage = typeof status.message === "string" ? status.message : ""
     const retrySignal = extractAutoRetrySignal({ status: retryMessage, message: retryMessage })
@@ -50,7 +50,7 @@ export function createSessionStatusHandler(
             retryMessage,
           })
         }
-        return
+        return false
       }
     }
 
@@ -58,7 +58,7 @@ export function createSessionStatusHandler(
     const retryKey = `${retryModel}:${extractRetryAttempt(status.attempt, retryMessage)}:${normalizeRetryStatusMessage(retryMessage)}`
     const seenRetryKeys = sessionStatusRetryKeys.get(sessionID) ?? new Set<string>()
     if (seenRetryKeys.has(retryKey)) {
-      return
+      return false
     }
     seenRetryKeys.add(retryKey)
     sessionStatusRetryKeys.set(sessionID, seenRetryKeys)
@@ -77,7 +77,7 @@ export function createSessionStatusHandler(
         if (seenRetryKeys?.size === 0) {
           sessionStatusRetryKeys.delete(sessionID)
         }
-        return
+        return false
       }
     }
 
@@ -87,7 +87,7 @@ export function createSessionStatusHandler(
       if (!sessionStates.has(sessionID)) {
         sessionStatusRetryKeys.delete(sessionID)
       }
-      return
+      return false
     }
 
     let state = sessionStates.get(sessionID)
@@ -102,7 +102,7 @@ export function createSessionStatusHandler(
       if (!initialModel) {
         sessionStatusRetryKeys.delete(sessionID)
         log(`[${HOOK_NAME}] session.status retry missing model info, cannot fallback`, { sessionID })
-        return
+        return false
       }
 
       state = createFallbackState(initialModel)
@@ -117,7 +117,7 @@ export function createSessionStatusHandler(
           sessionID,
           pendingFallbackModel: state.pendingFallbackModel,
         })
-        return
+        return true
       }
       if (timeoutEnabled) {
         log(`[${HOOK_NAME}] Clearing pending fallback due to provider auto-retry signal`, {
@@ -131,7 +131,7 @@ export function createSessionStatusHandler(
           sessionID,
           pendingFallbackModel: state.pendingFallbackModel,
         })
-        return
+        return false
       }
     }
 
@@ -143,7 +143,7 @@ export function createSessionStatusHandler(
 
     await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
 
-    await dispatchFallbackRetry(deps, helpers, {
+    return await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state,
       fallbackModels,
