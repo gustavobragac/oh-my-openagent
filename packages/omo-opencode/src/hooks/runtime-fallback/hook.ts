@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG } from "./constants"
 import { createEventHandler } from "./event-handler"
 import { createFirstPromptWatchdog, observeEventForWatchdog } from "./first-prompt-watchdog"
 import { createMessageUpdateHandler } from "./message-update-handler"
+import { createSessionStatusHandler } from "./session-status-handler"
 import type { HookDeps, RuntimeFallbackHook, RuntimeFallbackInterval, RuntimeFallbackOptions, RuntimeFallbackPluginInput, RuntimeFallbackTimeout } from "./types"
 
 declare function setInterval(callback: () => void, delay?: number): RuntimeFallbackInterval
@@ -64,6 +65,7 @@ export function createRuntimeFallbackHook(
   const messageUpdateHandler = factories.createMessageUpdateHandler(deps, helpers)
   const chatMessageHandler = factories.createChatMessageHandler(deps)
   const firstPromptWatchdog = factories.createFirstPromptWatchdog(deps, helpers)
+  const sessionStatusHandler = createSessionStatusHandler(deps, helpers, deps.sessionStatusRetryKeys)
 
   let cleanupInterval: RuntimeFallbackInterval | null = null
   let intervalStarted = false
@@ -117,6 +119,12 @@ export function createRuntimeFallbackHook(
 
   return {
     event: eventHandler,
+    "session.retry": async (input) => sessionStatusHandler({
+      sessionID: input.sessionID,
+      agent: input.agent,
+      model: input.model,
+      status: { type: "retry", message: input.error.message, attempt: input.attempt },
+    }),
     "chat.message": chatMessageHandler,
     dispose,
   } as RuntimeFallbackHook

@@ -73,6 +73,13 @@ export interface RuntimeFallbackOptions {
 
 export interface RuntimeFallbackHook {
   event: (input: { event: { type: string; properties?: unknown } }) => Promise<void>
+  "session.retry"?: (input: {
+    sessionID: string
+    agent?: string
+    model: { providerID: string; id: string; variant?: string }
+    error: { type: string; message: string; status?: number }
+    attempt: number
+  }) => Promise<boolean>
   "chat.message"?: (input: { sessionID: string; agent?: string; model?: { providerID: string; modelID: string }; variant?: string }, output: { message: { model?: { providerID: string; modelID: string }; variant?: string }; parts?: Array<{ type: string; text?: string }> }) => Promise<void>
   dispose?: () => void
 }

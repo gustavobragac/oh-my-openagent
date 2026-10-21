@@ -482,6 +482,63 @@ describe("OpenCode V2 adapter", () => {
     await cleanup?.()
   })
 
+  test("V2 retry policy delegates quota retries and vetoes only accepted OMO fallbacks", async () => {
+    const fake = createFakeContext()
+    const received: unknown[] = []
+    const cleanup = await setupOpenCodeV2(fake.ctx, {
+      server: async () => ({
+        "session.retry": async (input: unknown) => {
+          received.push(input)
+          return true
+        },
+      }),
+    })
+
+    const retryHook = fake.hooks.find((hook) => hook.domain === "session" && hook.name === "retry")
+    const event = {
+      sessionID: "ses_quota",
+      agent: "sisyphus",
+      model: { providerID: "anthropic", id: "claude-opus" },
+      error: { type: "provider.rate-limit", message: "quota exceeded", status: 429 },
+      attempt: 2,
+      decision: { retry: true as const, delay: 30_000 },
+    }
+
+    await retryHook?.fn(event)
+
+    expect(received).toEqual([{
+      sessionID: "ses_quota",
+      agent: "sisyphus",
+      model: { providerID: "anthropic", id: "claude-opus" },
+      error: { type: "provider.rate-limit", message: "quota exceeded", status: 429 },
+      attempt: 2,
+    }])
+    expect(event.decision).toEqual({ retry: false })
+
+    await cleanup?.()
+  })
+
+  test("V2 retry policy leaves OpenCode retries intact when OMO has no fallback", async () => {
+    const fake = createFakeContext()
+    const cleanup = await setupOpenCodeV2(fake.ctx, {
+      server: async () => ({ "session.retry": async () => false }),
+    })
+    const retryHook = fake.hooks.find((hook) => hook.domain === "session" && hook.name === "retry")
+    const event = {
+      sessionID: "ses_no_fallback",
+      agent: "sisyphus",
+      model: { providerID: "anthropic", id: "claude-opus" },
+      error: { type: "provider.rate-limit", message: "quota exceeded", status: 429 },
+      attempt: 2,
+      decision: { retry: true as const, delay: 30_000 },
+    }
+
+    await retryHook?.fn(event)
+
+    expect(event.decision).toEqual({ retry: true, delay: 30_000 })
+    await cleanup?.()
+  })
+
   test("agents, providers, and models use the V1 data shape", async () => {
     const fake = createFakeContext()
     const catalog = fake.ctx as unknown as {

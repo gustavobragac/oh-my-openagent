@@ -143,6 +143,9 @@ export async function registerV1Hooks(ctx: V2Context, hooks: V1HookMap, state?: 
   const toolBefore = asHandler(hooks["tool.execute.before"])
   const toolAfter = asHandler(hooks["tool.execute.after"])
   const eventHandler = asHandler(hooks.event)
+  const retryHandler = typeof hooks["session.retry"] === "function"
+    ? hooks["session.retry"] as (input: unknown) => Promise<boolean>
+    : undefined
   const shellEnv = asHandler(hooks["shell.env"])
   const permissionAsk = asHandler(hooks["permission.ask"])
 
@@ -294,6 +297,21 @@ export async function registerV1Hooks(ctx: V2Context, hooks: V1HookMap, state?: 
           event.effect = output.effect
         }
         if (typeof output.message === "string") event.message = output.message
+      })
+    })
+  }
+
+  if (retryHandler) {
+    await ctx.session.hook("retry", async (event) => {
+      await safeCall("session.retry", async () => {
+        const handled = await retryHandler({
+          sessionID: event.sessionID,
+          agent: event.agent,
+          model: event.model,
+          error: event.error,
+          attempt: event.attempt,
+        })
+        if (handled) event.decision = { retry: false }
       })
     })
   }
